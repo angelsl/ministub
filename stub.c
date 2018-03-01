@@ -290,6 +290,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
     EFI_STATUS err;
 
     InitializeLib(image, sys_table);
+    graphics_mode(FALSE);
 
     err = uefi_call_wrapper(BS->OpenProtocol, 6, image, &LoadedImageProtocol, (VOID **)&loaded_image, image, NULL,
                             EFI_OPEN_PROTOCOL_GET_PROTOCOL);
@@ -353,7 +354,6 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
     err = linux_exec(image, &cmdline, &cmdline_end - &cmdline, (UINTN)&vmlinuz, (UINTN)&initramfs,
                      &initramfs_end - &initramfs, secure);
 
-    graphics_mode(FALSE);
     Print(L"Execution of embedded linux image failed: %r\n", err);
     uefi_call_wrapper(BS->Stall, 1, 3 * 1000 * 1000);
     return err;
