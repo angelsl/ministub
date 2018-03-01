@@ -1,12 +1,18 @@
 ARCH			=	x86_64
 
-OBJS			=	stub.o
+CMDLINE			?=	/dev/null
+IMAGE			?=	vmlinuz-linux
+INITRAMFS		?=	initramfs.img
+
+OBJS			=	stub.o binaries.o
 TARGET			=	ministub.efi
 
 EFIINC			=	/usr/include/efi
 LIB				=	/usr/lib
 
-CFLAGS			=	-nostdinc -I$(EFIINC) -I$(EFIINC)/$(ARCH) -I$(EFIINC)/protocol \
+ASFLAGS			=	-DCMDLINE="\"$(CMDLINE)\"" -DIMAGE="\"$(IMAGE)\"" -DINITRAMFS="\"$(INITRAMFS)\""
+CFLAGS			=	-I$(EFIINC) -I$(EFIINC)/$(ARCH) -I$(EFIINC)/protocol \
+					-std=gnu11 \
 					-ffreestanding -fno-stack-protector -fpic -fshort-wchar \
 					-mno-sse -mno-mmx \
 					-Wall -Wextra -O2
@@ -21,6 +27,8 @@ LDFLAGS			=	-nostdlib -znocombreloc -shared \
 					$(LIB)/crt0-efi-$(ARCH).o
 
 all: $(TARGET)
+
+binaries.o: binaries.S $(CMDLINE) $(IMAGE) $(INITRAMFS)
 
 ministub.so: $(OBJS)
 	ld $(LDFLAGS) $(OBJS) -o $@ -lefi -lgnuefi

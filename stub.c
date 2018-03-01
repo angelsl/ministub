@@ -15,6 +15,13 @@
 #include <efi.h>
 #include <efilib.h>
 
+extern __attribute__((aligned(16))) CHAR8 cmdline;
+extern CHAR8 cmdline_end;
+extern const __attribute__((aligned(16))) unsigned char vmlinuz;
+extern const unsigned char vmlinuz_end;
+extern const __attribute__((aligned(16))) unsigned char initramfs;
+extern const unsigned char initramfs_end;
+
 static const EFI_GUID loader_guid = { 0x4a67b082, 0x0a4c, 0x41cf, {0xb6, 0xc7, 0x44, 0x0b, 0x29, 0xbb, 0x8c, 0x4f} };
 static const EFI_GUID global_guid = EFI_GLOBAL_VARIABLE;
 
@@ -285,8 +292,6 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
         // UINTN addrs[ELEMENTSOF(sections)-1] = {};
         // UINTN offs[ELEMENTSOF(sections)-1] = {};
         // UINTN szs[ELEMENTSOF(sections)-1] = {};
-        CHAR8 *cmdline = NULL;
-        UINTN cmdline_len;
         CHAR16 uuid[37];
         EFI_STATUS err;
 
@@ -334,9 +339,9 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
         if (efivar_get_raw(&global_guid, L"StubInfo", &b, &size) != EFI_SUCCESS)
                 efivar_set(L"StubInfo", L"ministub", FALSE);
 
-        err = linux_exec(image, cmdline, cmdline_len,
-                         (UINTN)loaded_image->ImageBase + addrs[1],
-                         (UINTN)loaded_image->ImageBase + addrs[2], szs[2], secure);
+        err = linux_exec(image, &cmdline, &cmdline_end - &cmdline,
+                         (UINTN)&vmlinuz,
+                         (UINTN)&initramfs, &initramfs_end - &initramfs, secure);
 
         graphics_mode(FALSE);
         Print(L"Execution of embedded linux image failed: %r\n", err);
