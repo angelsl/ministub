@@ -282,16 +282,6 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
         CHAR8 *b;
         UINTN size;
         BOOLEAN secure = FALSE;
-        // CHAR8 *sections[] = {
-        //         (UINT8 *)".cmdline",
-        //         (UINT8 *)".linux",
-        //         (UINT8 *)".initrd",
-        //         (UINT8 *)".splash",
-        //         NULL
-        // };
-        // UINTN addrs[ELEMENTSOF(sections)-1] = {};
-        // UINTN offs[ELEMENTSOF(sections)-1] = {};
-        // UINTN szs[ELEMENTSOF(sections)-1] = {};
         CHAR16 uuid[37];
         EFI_STATUS err;
 
@@ -300,7 +290,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
         err = uefi_call_wrapper(BS->OpenProtocol, 6, image, &LoadedImageProtocol, (VOID **)&loaded_image,
                                 image, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
         if (EFI_ERROR(err)) {
-                Print(L"Error getting a LoadedImageProtocol handle: %r ", err);
+                Print(L"Error getting a LoadedImageProtocol handle: %r\n", err);
                 uefi_call_wrapper(BS->Stall, 1, 3 * 1000 * 1000);
                 return err;
         }
