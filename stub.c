@@ -9,7 +9,21 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
  * Lesser General Public License for more details.
  *
+ * systemd stub.c:
+ * systemd linux.c:
+ * systemd disk.c:
  * Copyright (C) 2015 Kay Sievers <kay@vrfy.org>
+ *
+ * systemd util.c:
+ * Copyright (C) 2012-2013 Kay Sievers <kay@vrfy.org>
+ * Copyright (C) 2012 Harald Hoyer <harald@redhat.com>
+ *
+ * systemd graphics.c:
+ * Copyright (C) 2012-2013 Kay Sievers <kay@vrfy.org>
+ * Copyright (C) 2012 Harald Hoyer <harald@redhat.com>
+ * Copyright (C) 2013 Intel Corporation
+ *   Authored by Joonas Lahtinen <joonas.lahtinen@linux.intel.com>
+ *
  */
 
 #include <efi.h>
