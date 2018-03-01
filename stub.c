@@ -299,11 +299,24 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
         return err;
     }
 
+    Print(L"(1) Checking Secure Boot status\n");
+
     if (efivar_get_raw(&global_guid, L"SecureBoot", &b, &size) == EFI_SUCCESS) {
-        if (*b > 0)
+        if (*b > 0) {
             secure = TRUE;
+        }
         FreePool(b);
     }
+
+    if (secure) {
+        Print(L"    Secure boot is enabled\n");
+    } else {
+        Print(L"    *** Secure boot is DISABLED ***\n"
+              L"    Be careful when entering your FDE password.\n");
+        uefi_call_wrapper(BS->Stall, 1, 3 * 1000 * 1000);
+    }
+
+    Print(L"(2) Setting EFI variables\n");
 
     /* export the device path this image is started from */
     if (disk_get_part_uuid(loaded_image->DeviceHandle, uuid) == EFI_SUCCESS)
@@ -334,6 +347,8 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
     /* add StubInfo */
     if (efivar_get_raw(&global_guid, L"StubInfo", &b, &size) != EFI_SUCCESS)
         efivar_set(L"StubInfo", L"ministub", FALSE);
+
+    Print(L"(3) Executing Linux\n");
 
     err = linux_exec(image, &cmdline, &cmdline_end - &cmdline, (UINTN)&vmlinuz, (UINTN)&initramfs,
                      &initramfs_end - &initramfs, secure);
