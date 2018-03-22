@@ -15,21 +15,21 @@
 
 .balign 16
 cmdline:
-.incbin CMDLINE
+.incbin "/dev/null"
 .balign 1
 cmdline_end:
 .byte 0
 
 .balign 16
 vmlinuz:
-.incbin IMAGE
+.incbin "/dev/null"
 .balign 1
 vmlinuz_end:
 .byte 0
 
 .balign 16
 initramfs:
-.incbin INITRAMFS
+.incbin "/dev/null"
 .balign 1
 initramfs_end:
 .byte 0

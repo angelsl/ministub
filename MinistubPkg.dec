@@ -1,0 +1,7 @@
+[Defines]
+  DEC_SPECIFICATION              = 0x00010005
+  PACKAGE_NAME                   = Ministub
+  PACKAGE_GUID                   = 67984bc0-f5c5-480f-9118-a3f7b2ae3edc
+  PACKAGE_VERSION                = 0.0.1
+
+[Includes]

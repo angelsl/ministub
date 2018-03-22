@@ -26,8 +26,15 @@
  *
  */
 
-#include <efi.h>
-#include <efilib.h>
+#include <Uefi.h>
+#include <Library/PrintLib.h>
+#include <Library/UefiLib.h>
+#include <Library/UefiBootServicesTableLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
+#include <Library/DevicePathLib.h>
+#include <Library/UefiApplicationEntryPoint.h>
+#include <Protocol/LoadedImage.h>
+#include <Guid/GlobalVariable.h>
 
 extern __attribute__((aligned(16))) CHAR8 cmdline;
 extern CHAR8 cmdline_end;
@@ -37,7 +44,6 @@ extern const __attribute__((aligned(16))) unsigned char initramfs;
 extern const unsigned char initramfs_end;
 
 static const EFI_GUID loader_guid = {0x4a67b082, 0x0a4c, 0x41cf, {0xb6, 0xc7, 0x44, 0x0b, 0x29, 0xbb, 0x8c, 0x4f}};
-static const EFI_GUID global_guid = EFI_GLOBAL_VARIABLE;
 
 #define SETUP_MAGIC 0x53726448 /* "HdrS" */
 struct SetupHeader {
@@ -90,7 +96,7 @@ static inline VOID linux_efi_handover(EFI_HANDLE image, struct SetupHeader *setu
 
     asm volatile("cli");
     handover = (handover_f)((UINTN)setup->code32_start + 512 + setup->handover_offset);
-    handover(image, ST, setup);
+    handover(image, gST, setup);
 }
 #else
 typedef VOID (*handover_f)(VOID *image, EFI_SYSTEM_TABLE *table, struct SetupHeader *setup) __attribute__((regparm(0)));
@@ -98,7 +104,7 @@ static inline VOID linux_efi_handover(EFI_HANDLE image, struct SetupHeader *setu
     handover_f handover;
 
     handover = (handover_f)((UINTN)setup->code32_start + setup->handover_offset);
-    handover(image, ST, setup);
+    handover(image, gST, setup);
 }
 #endif
 
@@ -117,12 +123,12 @@ static EFI_STATUS linux_exec(EFI_HANDLE *image, CHAR8 *cmdline, UINTN cmdline_le
         return EFI_LOAD_ERROR;
 
     addr = 0x3fffffff;
-    err = uefi_call_wrapper(BS->AllocatePages, 4, AllocateMaxAddress, EfiLoaderData, EFI_SIZE_TO_PAGES(0x4000), &addr);
+    err = gBS->AllocatePages(AllocateMaxAddress, EfiLoaderData, EFI_SIZE_TO_PAGES(0x4000), &addr);
     if (EFI_ERROR(err))
         return err;
     boot_setup = (struct SetupHeader *)(UINTN)addr;
-    ZeroMem(boot_setup, 0x4000);
-    CopyMem(boot_setup, image_setup, sizeof(struct SetupHeader));
+    gBS->SetMem(boot_setup, 0x4000, 0);
+    gBS->CopyMem(boot_setup, image_setup, sizeof(struct SetupHeader));
     boot_setup->loader_id = 0xff;
 
     if (secure) {
@@ -141,11 +147,11 @@ static EFI_STATUS linux_exec(EFI_HANDLE *image, CHAR8 *cmdline, UINTN cmdline_le
 
     if (cmdline) {
         addr = 0xA0000;
-        err = uefi_call_wrapper(BS->AllocatePages, 4, AllocateMaxAddress, EfiLoaderData,
+        err = gBS->AllocatePages(AllocateMaxAddress, EfiLoaderData,
                                 EFI_SIZE_TO_PAGES(cmdline_len + 1), &addr);
         if (EFI_ERROR(err))
             return err;
-        CopyMem((VOID *)(UINTN)addr, cmdline, cmdline_len);
+        gBS->CopyMem((VOID *)(UINTN)addr, cmdline, cmdline_len);
         ((CHAR8 *)addr)[cmdline_len] = 0;
         boot_setup->cmd_line_ptr = (UINT32)addr;
     }
@@ -164,7 +170,7 @@ static EFI_STATUS efivar_set_raw(const EFI_GUID *vendor, CHAR16 *name, CHAR8 *bu
     if (persistent)
         flags |= EFI_VARIABLE_NON_VOLATILE;
 
-    return uefi_call_wrapper(RT->SetVariable, 5, name, (EFI_GUID *)vendor, flags, size, buf);
+    return gRT->SetVariable(name, (EFI_GUID *)vendor, flags, size, buf);
 }
 
 static EFI_STATUS efivar_set(CHAR16 *name, CHAR16 *value, BOOLEAN persistent) {
@@ -177,24 +183,26 @@ static EFI_STATUS efivar_get_raw(const EFI_GUID *vendor, CHAR16 *name, CHAR8 **b
     UINTN l;
     EFI_STATUS err;
 
-    l = sizeof(CHAR16 *) * EFI_MAXIMUM_VARIABLE_SIZE;
-    buf = AllocatePool(l);
+    l = sizeof(CHAR16 *) * 1024;
+    err = gBS->AllocatePool(EfiConventionalMemory, l, (VOID **) &buf);
+    if (EFI_ERROR(err)) {
+        return err;
+    }
     if (!buf)
         return EFI_OUT_OF_RESOURCES;
 
-    err = uefi_call_wrapper(RT->GetVariable, 5, name, (EFI_GUID *)vendor, NULL, &l, buf);
+    err = gRT->GetVariable(name, (EFI_GUID *)vendor, NULL, &l, buf);
     if (!EFI_ERROR(err)) {
         *buffer = buf;
         if (size)
             *size = l;
     } else
-        FreePool(buf);
+        gBS->FreePool(buf);
     return err;
 }
 
 static EFI_STATUS graphics_mode(BOOLEAN on) {
-#define EFI_CONSOLE_CONTROL_PROTOCOL_GUID {0xf42f7782, 0x12e, 0x4c12, {0x99, 0x56, 0x49, 0xf9, 0x43, 0x4, 0xf7, 0x21}};
-
+#define EFI_CONSOLE_CONTROL_PROTOCOL_GUID {0xf42f7782, 0x12e, 0x4c12, {0x99, 0x56, 0x49, 0xf9, 0x43, 0x4, 0xf7, 0x21}}
     struct _EFI_CONSOLE_CONTROL_PROTOCOL;
 
     typedef enum {
@@ -227,13 +235,13 @@ static EFI_STATUS graphics_mode(BOOLEAN on) {
     BOOLEAN stdin_locked;
     EFI_STATUS err;
 
-    err = LibLocateProtocol(&ConsoleControlProtocolGuid, (VOID **)&ConsoleControl);
+    err = gBS->LocateProtocol(&ConsoleControlProtocolGuid, NULL, (VOID **)&ConsoleControl);
     if (EFI_ERROR(err))
         /* console control protocol is nonstandard and might not exist. */
         return err == EFI_NOT_FOUND ? EFI_SUCCESS : err;
 
     /* check current mode */
-    err = uefi_call_wrapper(ConsoleControl->GetMode, 4, ConsoleControl, &current, &uga_exists, &stdin_locked);
+    err = ConsoleControl->GetMode(ConsoleControl, &current, &uga_exists, &stdin_locked);
     if (EFI_ERROR(err))
         return err;
 
@@ -242,10 +250,10 @@ static EFI_STATUS graphics_mode(BOOLEAN on) {
     if (new == current)
         return EFI_SUCCESS;
 
-    err = uefi_call_wrapper(ConsoleControl->SetMode, 2, ConsoleControl, new);
+    err = ConsoleControl->SetMode(ConsoleControl, new);
 
     /* some firmware enables the cursor when switching modes */
-    uefi_call_wrapper(ST->ConOut->EnableCursor, 2, ST->ConOut, FALSE);
+    gST->ConOut->EnableCursor(gST->ConOut, FALSE);
 
     return err;
 }
@@ -259,7 +267,7 @@ static EFI_STATUS disk_get_part_uuid(EFI_HANDLE *handle, CHAR16 uuid[37]) {
     if (device_path) {
         EFI_DEVICE_PATH *path, *paths;
 
-        paths = UnpackDevicePath(device_path);
+        paths = path;
         for (path = paths; !IsDevicePathEnd(path); path = NextDevicePathNode(path)) {
             HARDDRIVE_DEVICE_PATH *drive;
 
@@ -271,17 +279,57 @@ static EFI_STATUS disk_get_part_uuid(EFI_HANDLE *handle, CHAR16 uuid[37]) {
             if (drive->SignatureType != SIGNATURE_TYPE_GUID)
                 continue;
 
-            GuidToString(uuid, (EFI_GUID *)&drive->Signature);
+            UnicodeSPrint(uuid, 37, L"%g", (EFI_GUID *)&drive->Signature);
             r = EFI_SUCCESS;
             break;
         }
-        FreePool(paths);
     }
 
     return r;
 }
 
-EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
+#if 0
+static VOID normalise_path(IN OUT CHAR16 *path) {
+    UINTN src = 0, dst = 0;
+
+    if (!path || !path[0]) {
+        return;
+    }
+
+    while (path[src]) {
+        if ((path[src] == L'/') || (path[src] == L'\\')) {
+            if (dst == 0) {
+                src++;
+            } else {
+                path[dst++] = L'\\';
+                do {
+                    src++;
+                } while ((path[src] == L'/') || (path[src] == L'\\'));
+            }
+        } else {
+            path[dst++] = path[src++];
+        }
+    }
+
+    if ((dst > 0) && (path[dst - 1] == L'\\')) {
+        dst--;
+    }
+
+    path[dst] = L'\0';
+
+    if (path[0] == L'\0') {
+        path[0] = L'\\';
+        path[1] = L'\0';
+    }
+}
+
+static EFI_STATUS open_current_dir(EFI_LOADED_IMAGE *loaded_image) {
+    CHAR16 *lipath = DevicePathToStr(loaded_image->FilePath);
+
+}
+#endif
+
+EFI_STATUS EFIAPI efi_main(IN EFI_HANDLE image, IN EFI_SYSTEM_TABLE *sys_table) {
     EFI_LOADED_IMAGE *loaded_image;
     CHAR8 *b;
     UINTN size;
@@ -289,24 +337,23 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
     CHAR16 uuid[37];
     EFI_STATUS err;
 
-    InitializeLib(image, sys_table);
     graphics_mode(FALSE);
 
-    err = uefi_call_wrapper(BS->OpenProtocol, 6, image, &LoadedImageProtocol, (VOID **)&loaded_image, image, NULL,
+    err = gBS->OpenProtocol(image, &gEfiLoadedImageProtocolGuid, (VOID **)&loaded_image, image, NULL,
                             EFI_OPEN_PROTOCOL_GET_PROTOCOL);
     if (EFI_ERROR(err)) {
         Print(L"Error getting a LoadedImageProtocol handle: %r\n", err);
-        uefi_call_wrapper(BS->Stall, 1, 3 * 1000 * 1000);
+        gBS->Stall(3 * 1000 * 1000);
         return err;
     }
 
     Print(L"(1) Checking Secure Boot status\n");
 
-    if (efivar_get_raw(&global_guid, L"SecureBoot", &b, &size) == EFI_SUCCESS) {
+    if (efivar_get_raw(&gEfiGlobalVariableGuid, L"SecureBoot", &b, &size) == EFI_SUCCESS) {
         if (*b > 0) {
             secure = TRUE;
         }
-        FreePool(b);
+        gBS->FreePool(b);
     }
 
     if (secure) {
@@ -314,7 +361,7 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
     } else {
         Print(L"    *** Secure boot is DISABLED ***\n"
               L"    Be careful when entering your FDE password.\n");
-        uefi_call_wrapper(BS->Stall, 1, 3 * 1000 * 1000);
+        gBS->Stall(3 * 1000 * 1000);
     }
 
     Print(L"(2) Setting EFI variables\n");
@@ -325,28 +372,28 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
 
     /* if LoaderImageIdentifier is not set, assume the image with this stub was
      * loaded directly from UEFI */
-    if (efivar_get_raw(&global_guid, L"LoaderImageIdentifier", &b, &size) != EFI_SUCCESS) {
-        CHAR16 *loaded_image_path = DevicePathToStr(loaded_image->FilePath);
+    if (efivar_get_raw(&gEfiGlobalVariableGuid, L"LoaderImageIdentifier", &b, &size) != EFI_SUCCESS) {
+        CHAR16 *loaded_image_path = ConvertDevicePathToText(loaded_image->FilePath, FALSE, FALSE);
         efivar_set(L"LoaderImageIdentifier", loaded_image_path, FALSE);
-        FreePool(loaded_image_path);
+        gBS->FreePool(loaded_image_path);
     }
 
     /* if LoaderFirmwareInfo is not set, let's set it */
-    if (efivar_get_raw(&global_guid, L"LoaderFirmwareInfo", &b, &size) != EFI_SUCCESS) {
+    if (efivar_get_raw(&gEfiGlobalVariableGuid, L"LoaderFirmwareInfo", &b, &size) != EFI_SUCCESS) {
         CHAR16 *loader_firmware_info =
-            PoolPrint(L"%s %d.%02d", ST->FirmwareVendor, ST->FirmwareRevision >> 16, ST->FirmwareRevision & 0xffff);
+            CatSPrint(NULL, L"%s %d.%02d", gST->FirmwareVendor, gST->FirmwareRevision >> 16, gST->FirmwareRevision & 0xffff);
         efivar_set(L"LoaderFirmwareInfo", loader_firmware_info, FALSE);
-        FreePool(loader_firmware_info);
+        gBS->FreePool(loader_firmware_info);
     }
     /* ditto for LoaderFirmwareType */
-    if (efivar_get_raw(&global_guid, L"LoaderFirmwareType", &b, &size) != EFI_SUCCESS) {
-        CHAR16 *loader_firmware_type = PoolPrint(L"UEFI %d.%02d", ST->Hdr.Revision >> 16, ST->Hdr.Revision & 0xffff);
+    if (efivar_get_raw(&gEfiGlobalVariableGuid, L"LoaderFirmwareType", &b, &size) != EFI_SUCCESS) {
+        CHAR16 *loader_firmware_type = CatSPrint(NULL, L"UEFI %d.%02d", gST->Hdr.Revision >> 16, gST->Hdr.Revision & 0xffff);
         efivar_set(L"LoaderFirmwareType", loader_firmware_type, FALSE);
-        FreePool(loader_firmware_type);
+        gBS->FreePool(loader_firmware_type);
     }
 
     /* add StubInfo */
-    if (efivar_get_raw(&global_guid, L"StubInfo", &b, &size) != EFI_SUCCESS)
+    if (efivar_get_raw(&gEfiGlobalVariableGuid, L"StubInfo", &b, &size) != EFI_SUCCESS)
         efivar_set(L"StubInfo", L"ministub", FALSE);
 
     Print(L"(3) Executing Linux\n");
@@ -355,6 +402,6 @@ EFI_STATUS efi_main(EFI_HANDLE image, EFI_SYSTEM_TABLE *sys_table) {
                      &initramfs_end - &initramfs, secure);
 
     Print(L"Execution of embedded linux image failed: %r\n", err);
-    uefi_call_wrapper(BS->Stall, 1, 3 * 1000 * 1000);
+    gBS->Stall(3 * 1000 * 1000);
     return err;
 }
