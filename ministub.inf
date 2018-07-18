@@ -11,12 +11,15 @@
 [Sources]
   stub.c
   binaries.S
+  ed25519/fe.c
+  ed25519/ge.c
+  ed25519/sc.c
+  ed25519/sha512.c
+  ed25519/verify.c
 
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
-  IntelFrameworkPkg/IntelFrameworkPkg.dec
-  IntelFrameworkModulePkg/IntelFrameworkModulePkg.dec
 
 [LibraryClasses]
   UefiApplicationEntryPoint
@@ -31,10 +34,12 @@
   CompilerIntrinsicsLib
 
 [Guids]
+  gEfiFileInfoGuid
   gEfiGlobalVariableGuid
 
 [Protocols]
   gEfiLoadedImageProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid
 
 [BuildOptions.IA32]
   XCODE:*_*_*_CC_FLAGS = -Os  -DEFI32 -D__MAKEWITH_TIANO
