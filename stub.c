@@ -396,6 +396,44 @@ struct ReadImageResult {
     void *cmdline;
 } __attribute__((packed));
 
+static EFI_STATUS chunked_read(IN EFI_FILE_PROTOCOL *const file, const UINTN size, void *const dest) {
+    const UINTN block_size = 128*1024;
+    EFI_STATUS err;
+
+    UINTN read = 0;
+    unsigned char *cur_dest = dest;
+
+    // Print(L"         0/%l10d", size);
+
+    while (read < size) {
+        const UINTN cur_read = (size - read < block_size) ? size - read : block_size;
+        UINTN cur_read_p = cur_read;
+        err = file->Read(file, &cur_read_p, cur_dest);
+        if (EFI_ERROR(err)) {
+            DEBUG_PLN();
+            return err;
+        }
+        if (cur_read_p < cur_read) {
+            DEBUG_PLN();
+            return EFI_END_OF_FILE;
+        }
+
+        read += cur_read_p;
+        cur_dest += cur_read_p;
+
+        // Print(L"\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b"
+        //       L"%l10d/%l10d", read, size);
+
+        if (read % (block_size*8) == 0) {
+            Print(L".");
+        }
+    }
+
+    Print(L" OK\n");
+
+    return EFI_SUCCESS;
+}
+
 static EFI_STATUS image_read(IN EFI_FILE_PROTOCOL *dir, IN CHAR16 *name, IN OUT struct ReadImageResult *out) {
     EFI_STATUS err;
 
@@ -438,27 +476,17 @@ static EFI_STATUS image_read(IN EFI_FILE_PROTOCOL *dir, IN CHAR16 *name, IN OUT 
     out->initrd = (void *)(UINTN) data_addr;
     out->cmdline = (void *)(UINTN) (data_addr + out->initrd_size);
 
-    read_size = out->vmlinuz_size;
-    err = file->Read(file, &read_size, out->vmlinuz);
+    Print(L"Reading vmlinuz: ");
+    err = chunked_read(file, out->vmlinuz_size, out->vmlinuz);
     if (EFI_ERROR(err)) {
         DEBUG_PLN();
-        goto fail;
-    }
-    if (read_size < out->vmlinuz_size) {
-        DEBUG_PLN();
-        err = EFI_END_OF_FILE;
         goto fail;
     }
 
-    read_size = out->initrd_size + out->cmdline_size;
-    err = file->Read(file, &read_size, out->initrd);
+    Print(L"Reading initrd: ");
+    err = chunked_read(file, out->initrd_size + out->cmdline_size, out->initrd);
     if (EFI_ERROR(err)) {
         DEBUG_PLN();
-        goto fail;
-    }
-    if (read_size < out->initrd_size + out->cmdline_size) {
-        DEBUG_PLN();
-        err = EFI_END_OF_FILE;
         goto fail;
     }
 
@@ -523,7 +551,6 @@ EFI_STATUS EFIAPI efi_main(IN EFI_HANDLE image, IN EFI_SYSTEM_TABLE *sys_table) 
     } else {
         Print(L"    *** Secure boot is DISABLED ***\n"
               L"    Be careful when entering any credentials.\n");
-        gBS->Stall(3 * 1000 * 1000);
     }
 
     Print(L"(2) Loading combined image\n");
