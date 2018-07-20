@@ -132,7 +132,7 @@ static EFI_STATUS linux_exec(EFI_HANDLE *image, CHAR8 *cmdline, UINTN cmdline_le
         return err;
     boot_setup = (struct SetupHeader *)(UINTN)addr;
     gBS->SetMem(boot_setup, 0x4000, 0);
-    gBS->CopyMem(boot_setup, image_setup, sizeof(struct SetupHeader));
+    gBS->CopyMem(boot_setup + sizeof(boot_setup->boot_sector), image_setup + sizeof(image_setup->boot_sector), sizeof(struct SetupHeader) - sizeof(boot_setup->boot_sector));
     boot_setup->loader_id = 0xff;
 
     if (secure) {
